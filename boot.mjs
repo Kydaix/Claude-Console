@@ -106,6 +106,16 @@ childEnv.USERPROFILE = HOME; // harmless on POSIX, correct on Windows dev boxes
 childEnv.USER = childEnv.USER || "container";
 childEnv.TERM = childEnv.TERM || "xterm-256color";
 childEnv.PATH = [LOCAL_BIN, VENDOR, childEnv.PATH].filter(Boolean).join(delimiter);
+// Claude Code's Bash tool reads $SHELL to find a POSIX shell. Container images
+// (alpine) usually leave SHELL unset → "No suitable shell found". Point it at
+// the best shell actually present (busybox provides /bin/sh on alpine).
+if (!IS_WINDOWS && (!childEnv.SHELL || !existsSync(childEnv.SHELL))) {
+  const shell = ["/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"].find(
+    (s) => existsSync(s),
+  );
+  if (shell) childEnv.SHELL = shell;
+  else warn("no POSIX shell found on PATH — Claude Code's Bash tool will fail.");
+}
 if (existsSync(RG)) childEnv.USE_BUILTIN_RIPGREP = "0";
 // Updates come from reinstalling the server, not from the binary rewriting its
 // own managed install at runtime — silence the in-process auto-updater.

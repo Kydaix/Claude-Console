@@ -73,6 +73,17 @@ passe le PTY directement à `claude` :
   si elle échoue, vérifiez l'accès internet et l'espace disque du serveur, puis
   redémarrez. Forcer une réinstallation propre du serveur (qui rejoue
   `npm install`) résout aussi le souci.
+- **« No suitable shell found … SHELL »** (outil Bash de Claude Code) : l'image
+  alpine ne définit pas `SHELL`. Le lanceur le règle automatiquement sur le shell
+  présent (`/bin/sh` busybox). Si le message persiste, votre image runtime n'a
+  aucun shell POSIX.
+- **`git: not found` / `bash: not found` dans la console Claude** : l'image
+  runtime `node:24-alpine` ne fournit **ni git ni bash** (juste busybox `sh` +
+  node + npm), et le conteneur runtime tourne en uid 1000 sans root ni `apk` — on
+  ne peut donc pas les ajouter au runtime. Busybox couvre l'essentiel
+  (`ls`, `grep`, `sed`, `find`…). Si vous avez besoin de `git`/`bash` **dans** la
+  console, il faut un **template dédié** à base Debian (image runtime avec
+  git+bash préinstallés) plutôt que le template `nodejs` générique.
 
 ## Mises à jour
 
