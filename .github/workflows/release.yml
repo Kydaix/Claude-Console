@@ -1,0 +1,120 @@
+name: release
+
+# Chaque push sur main publie une version ET nettoie le dépôt :
+#  - version auto monotone (v1.0.<run_number>) — pas de marqueurs de commit
+#  - archive source du lanceur (SANS node_modules : UniSlaw fait `npm install`)
+#  - tag + release, une seule conservée, reruns idempotents
+#  - purge des anciennes releases/tags, des caches, des artifacts et des vieux runs
+# Inspiré du système de Bios, adapté à un projet Node (runner ubuntu, bash, et
+# l'artefact de release est une archive source — il n'y a pas d'exe à compiler).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # créer/supprimer releases + tags
+  actions: write # supprimer caches, artifacts, runs
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Validation sans dépendances (node --check) : on ne pull jamais Claude
+      # Code en CI. C'est le même check que `npm run check` en local.
+      - name: Check sources
+        run: npm run check
+
+  release:
+    name: Release
+    needs: check
+    # Release uniquement depuis main (jamais sur une PR).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: v1.0.${{ github.run_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # L'archive est la source du lanceur (.gitignore respecté → pas de
+          # node_modules, pas de binaire vendored, pas d'état runtime).
+          git archive --format=tar.gz --prefix="claude-console-${VERSION#v}/" \
+            -o "dist/claude-console-${VERSION}.tar.gz" HEAD
+          (cd dist && sha256sum "claude-console-${VERSION}.tar.gz" > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Create release ${{ env.VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Rerun avec le même numéro → on repart propre.
+          gh release delete "$VERSION" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$VERSION" \
+            "dist/claude-console-${VERSION}.tar.gz" dist/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "Claude Console $VERSION" \
+            --generate-notes
+
+      # --- Nettoyage (best-effort : ne doit jamais faire échouer la release) ---
+
+      - name: Delete previous releases and tags (keep current)
+        shell: bash
+        run: |
+          keep="$VERSION"
+          gh release list --limit 200 --json tagName --jq '.[].tagName' | while read -r t; do
+            [ -n "$t" ] || continue
+            if [ "$t" != "$keep" ]; then
+              echo "Removing old release/tag $t"
+              gh release delete "$t" --yes --cleanup-tag 2>/dev/null || true
+            fi
+          done
+          exit 0
+
+      - name: Delete all Actions caches
+        shell: bash
+        run: |
+          gh cache list --limit 200 --json id --jq '.[].id' | while read -r id; do
+            [ -n "$id" ] && gh cache delete "$id" 2>/dev/null || true
+          done
+          exit 0
+
+      - name: Delete all run artifacts
+        shell: bash
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          gh api "repos/$repo/actions/artifacts" --paginate --jq '.artifacts[].id' | while read -r id; do
+            [ -n "$id" ] && gh api -X DELETE "repos/$repo/actions/artifacts/$id" 2>/dev/null || true
+          done
+          exit 0
+
+      - name: Delete old workflow runs (keep latest 10)
+        shell: bash
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          gh api "repos/$repo/actions/runs?per_page=100" \
+            --jq '.workflow_runs | sort_by(.created_at) | reverse | .[10:] | .[].id' | while read -r id; do
+            [ -n "$id" ] && gh api -X DELETE "repos/$repo/actions/runs/$id" 2>/dev/null || true
+          done
+          exit 0

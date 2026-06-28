@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# Provisioned at install time / created at runtime on the server volume.
+vendor/rg
+vendor/rg.exe
+vendor/*.tar.gz
+.claude-home/
+workspace/
+
+*.log
+.DS_Store

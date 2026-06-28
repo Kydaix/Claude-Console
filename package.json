@@ -1,0 +1,21 @@
+{
+  "name": "claude-console",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Run the real Claude Code CLI inside a UniSlaw-hosted Node.js server — the panel's interactive console becomes a live Claude Code terminal.",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "claude-console": "boot.mjs"
+  },
+  "scripts": {
+    "start": "node boot.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
+    "check": "node --check boot.mjs && node --check scripts/postinstall.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "latest"
+  }
+}

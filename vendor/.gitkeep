@@ -1,0 +1,2 @@
+# Holds the musl-static `rg` binary provisioned by scripts/postinstall.mjs.
+# The binary itself is git-ignored; this file just keeps the directory present.
