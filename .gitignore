@@ -5,6 +5,7 @@ dist/
 vendor/rg
 vendor/rg.exe
 vendor/*.tar.gz
+vendor/toolchain/
 .claude-home/
 workspace/
 

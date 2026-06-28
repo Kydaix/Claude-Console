@@ -81,6 +81,19 @@ const VENDOR = join(HERE, "vendor");
 const LOCAL_BIN = join(HERE, "node_modules", ".bin");
 const RG = join(VENDOR, IS_WINDOWS ? "rg.exe" : "rg");
 
+// Self-contained toolchain (git/bash/ripgrep/ssh + their libs) that
+// scripts/postinstall.mjs installs onto the volume with `apk add --root` at
+// install time. Present only on alpine hosts where provisioning succeeded.
+const TOOLCHAIN = join(VENDOR, "toolchain");
+const TC_BIN = [
+  join(TOOLCHAIN, "usr", "bin"),
+  join(TOOLCHAIN, "usr", "sbin"),
+  join(TOOLCHAIN, "bin"),
+  join(TOOLCHAIN, "usr", "libexec", "git-core"),
+];
+const TC_LIB = [join(TOOLCHAIN, "usr", "lib"), join(TOOLCHAIN, "lib")];
+const TC_CA = join(TOOLCHAIN, "etc", "ssl", "certs", "ca-certificates.crt");
+
 const CYAN = "\x1b[36m";
 const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
@@ -100,23 +113,55 @@ for (const dir of [HOME, WORKSPACE]) {
   }
 }
 
+const haveToolchain = existsSync(join(TOOLCHAIN, "usr", "bin"));
+
 const childEnv = { ...process.env };
 childEnv.HOME = HOME;
 childEnv.USERPROFILE = HOME; // harmless on POSIX, correct on Windows dev boxes
 childEnv.USER = childEnv.USER || "container";
 childEnv.TERM = childEnv.TERM || "xterm-256color";
-childEnv.PATH = [LOCAL_BIN, VENDOR, childEnv.PATH].filter(Boolean).join(delimiter);
+
+// PATH: volume toolchain first (git/bash/rg…), then the local npm bin + vendor.
+childEnv.PATH = [...(haveToolchain ? TC_BIN : []), LOCAL_BIN, VENDOR, childEnv.PATH]
+  .filter(Boolean)
+  .join(delimiter);
+
+// Wire up the provisioned toolchain so its binaries find their libs, helpers
+// and CA bundle (the runtime base image only ships busybox + node).
+if (haveToolchain) {
+  childEnv.LD_LIBRARY_PATH = [...TC_LIB, childEnv.LD_LIBRARY_PATH]
+    .filter(Boolean)
+    .join(delimiter);
+  childEnv.GIT_EXEC_PATH = join(TOOLCHAIN, "usr", "libexec", "git-core");
+  childEnv.GIT_TEMPLATE_DIR = join(TOOLCHAIN, "usr", "share", "git-core", "templates");
+  if (existsSync(TC_CA)) {
+    // https git clone, ssl in general — point every common knob at the bundle.
+    childEnv.GIT_SSL_CAINFO = childEnv.GIT_SSL_CAINFO || TC_CA;
+    childEnv.SSL_CERT_FILE = childEnv.SSL_CERT_FILE || TC_CA;
+    childEnv.CURL_CA_BUNDLE = childEnv.CURL_CA_BUNDLE || TC_CA;
+    childEnv.NODE_EXTRA_CA_CERTS = childEnv.NODE_EXTRA_CA_CERTS || TC_CA;
+  }
+}
+
 // Claude Code's Bash tool reads $SHELL to find a POSIX shell. Container images
-// (alpine) usually leave SHELL unset → "No suitable shell found". Point it at
-// the best shell actually present (busybox provides /bin/sh on alpine).
+// (alpine) usually leave SHELL unset → "No suitable shell found". Prefer the
+// provisioned bash, then any system shell (busybox provides /bin/sh on alpine).
 if (!IS_WINDOWS && (!childEnv.SHELL || !existsSync(childEnv.SHELL))) {
-  const shell = ["/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"].find(
-    (s) => existsSync(s),
-  );
+  const shell = [
+    join(TOOLCHAIN, "usr", "bin", "bash"),
+    "/bin/bash",
+    "/usr/bin/bash",
+    "/bin/sh",
+    "/usr/bin/sh",
+  ].find((s) => existsSync(s));
   if (shell) childEnv.SHELL = shell;
   else warn("no POSIX shell found on PATH — Claude Code's Bash tool will fail.");
 }
-if (existsSync(RG)) childEnv.USE_BUILTIN_RIPGREP = "0";
+
+// Use the system ripgrep (provisioned, or vendored) instead of the bundled one.
+if (existsSync(join(TOOLCHAIN, "usr", "bin", "rg")) || existsSync(RG)) {
+  childEnv.USE_BUILTIN_RIPGREP = "0";
+}
 // Updates come from reinstalling the server, not from the binary rewriting its
 // own managed install at runtime — silence the in-process auto-updater.
 childEnv.DISABLE_AUTOUPDATER = childEnv.DISABLE_AUTOUPDATER || "1";
@@ -186,6 +231,9 @@ function banner() {
     `${CYAN}  Claude Console${RESET} ${DIM}— Claude Code CLI, hosted on UniSlaw${RESET}`,
     `${DIM}  workspace: ${WORKSPACE}${RESET}`,
     `${DIM}  home:      ${HOME} (login persists here)${RESET}`,
+    `${DIM}  toolchain: ${
+      haveToolchain ? "git, bash, ripgrep (volume)" : "busybox only (no git/bash)"
+    }${RESET}`,
   ];
   if (!credsExist && !process.env.ANTHROPIC_API_KEY) {
     lines.push(
