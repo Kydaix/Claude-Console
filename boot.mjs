@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { ensureToolchain } from "./scripts/toolchain.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const IS_WINDOWS = process.platform === "win32";
@@ -113,7 +114,35 @@ for (const dir of [HOME, WORKSPACE]) {
   }
 }
 
-const haveToolchain = existsSync(join(TOOLCHAIN, "usr", "bin"));
+// Provision git/bash/ripgrep/ssh onto the volume — the alpine runtime ships
+// none, and Claude Code's Bash tool needs a real bash. Runs without root (apk
+// fetch + extract, static-bash fallback); idempotent across boots.
+let toolchain = { hasBash: false, hasGit: false };
+if (!IS_WINDOWS && AUTO_INSTALL) {
+  try {
+    toolchain = await ensureToolchain({
+      prefix: TOOLCHAIN,
+      log,
+      warn,
+      extra: (process.env.CLAUDE_CONSOLE_TOOLS || "")
+        .split(" ")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+  } catch (err) {
+    warn(`toolchain provisioning error: ${err.message}`);
+  }
+} else {
+  toolchain = {
+    hasBash:
+      existsSync(join(TOOLCHAIN, "usr", "bin", "bash")) ||
+      existsSync(join(TOOLCHAIN, "bin", "bash")),
+    hasGit: existsSync(join(TOOLCHAIN, "usr", "bin", "git")),
+  };
+}
+
+const haveToolchain =
+  existsSync(join(TOOLCHAIN, "usr", "bin")) || existsSync(join(TOOLCHAIN, "bin"));
 
 const childEnv = { ...process.env };
 childEnv.HOME = HOME;
@@ -149,6 +178,7 @@ if (haveToolchain) {
 if (!IS_WINDOWS && (!childEnv.SHELL || !existsSync(childEnv.SHELL))) {
   const shell = [
     join(TOOLCHAIN, "usr", "bin", "bash"),
+    join(TOOLCHAIN, "bin", "bash"),
     "/bin/bash",
     "/usr/bin/bash",
     "/bin/sh",
@@ -232,7 +262,11 @@ function banner() {
     `${DIM}  workspace: ${WORKSPACE}${RESET}`,
     `${DIM}  home:      ${HOME} (login persists here)${RESET}`,
     `${DIM}  toolchain: ${
-      haveToolchain ? "git, bash, ripgrep (volume)" : "busybox only (no git/bash)"
+      toolchain.hasGit
+        ? "git, bash, ripgrep (volume)"
+        : toolchain.hasBash
+          ? "bash only (no git)"
+          : "busybox only (no git/bash)"
     }${RESET}`,
   ];
   if (!credsExist && !process.env.ANTHROPIC_API_KEY) {

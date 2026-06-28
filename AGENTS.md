@@ -25,17 +25,24 @@ Petit projet Node, sans dépendances de build : un lanceur qui fait tourner le
   (`node_modules/@anthropic-ai/claude-code/bin/claude.exe`, taille ≥ ~5 Mo, sinon
   c'est le stub) et l'**installer au runtime** s'il manque. Lancer le binaire en
   **direct**, jamais via `.bin/claude`/PATH (peut manquer ou être un lien mort).
-- **Toolchain sur le volume** : l'image runtime alpine n'a ni git ni bash. Le
-  conteneur d'**install** est root + `apk` + réseau → `scripts/postinstall.mjs`
-  fait `apk add --root vendor/toolchain ... git bash ripgrep ...` (préfixe sur le
-  volume, donc persistant). `boot.mjs` câble `PATH`/`LD_LIBRARY_PATH`/`GIT_EXEC_PATH`/
-  `GIT_SSL_CAINFO`/`SHELL` vers ce préfixe. Marche car install et runtime
-  partagent la base `node:*-alpine` (même loader musl). Essentiels (repo *main*)
-  vs extras *community* (ripgrep/git-lfs) séparés : `apk` est atomique, un paquet
-  community manquant ne doit pas couler git → fallback aux essentiels.
-- `postinstall.mjs` ne doit **jamais** faire échouer `npm install` (toujours
-  `exit 0`) ; no-op si non-linux, non-root, ou `apk` absent.
-- Cibler `linux/amd64` (cible de prod UniSlaw). arm64 est géré par `apk` natif.
+- **Toolchain sur le volume, SANS root** : l'image runtime alpine n'a ni git ni
+  bash, et l'outil Bash de Claude Code exige un **vrai bash** (busybox sh refusé).
+  Sur la cible, rien ne tourne en root (juste `npm start` en uid 1000), donc
+  `apk add` (qui chown root) est exclu. `scripts/toolchain.mjs` :
+  `apk fetch --recursive` (télécharge la fermeture de deps en `.apk`, sans root) →
+  extracteur `.apk` dep-free (`extractApk` : `gunzipSync` gère les membres gzip
+  concaténés, lecteur ustar maison qui saute pax/control, pas de `chown`) →
+  déballe dans `vendor/toolchain/`. `boot.mjs` câble `PATH`/`LD_LIBRARY_PATH`/
+  `GIT_EXEC_PATH`/`GIT_SSL_CAINFO`/`SHELL`. Marche car install et runtime partagent
+  la base `node:*-alpine` (même loader musl). **Fallback bash statique** (1 fichier,
+  zéro dep) si `apk fetch` échoue → le shell marche toujours. Idempotent via le
+  marqueur `vendor/toolchain/.provisioned` (pas de marqueur ⇒ on réessaie au boot).
+- `ensureToolchain` est appelé par `boot.mjs` (runtime, uid 1000) **et**
+  `postinstall.mjs` (au cas où un hôte installe en root). Ne doit **jamais** faire
+  échouer `npm install` (postinstall `exit 0`).
+- L'extracteur est validé sur de vrais `.apk` ; ne pas le « simplifier » avec
+  `tar`/`gunzip` shell (busybox tar gère mal les `.apk` multi-membres).
+- Cibler `linux/amd64`. arm64 géré par `apk` natif + asset bash-static aarch64.
 
 ## Vérifs locales
 

@@ -45,19 +45,24 @@ passe le PTY directement à `claude` :
   ce qui le rend robuste sur UniSlaw comme sur n'importe quel hébergement Node.
   Lancement **direct du binaire** (jamais via le shim `.bin/claude` ou le `PATH`,
   qui peuvent manquer).
-- **Toolchain autonome (git, bash, ripgrep, ssh)** : l'image runtime
-  `node:24-alpine` ne fournit que busybox + node + npm — **ni git, ni bash**. Le
-  conteneur d'**install** tourne lui en **root avec `apk` + réseau**, alors
-  `scripts/postinstall.mjs` installe un jeu de paquets alpine **dans un préfixe
-  sur le volume** (`vendor/toolchain/`, via `apk add --root`). `apk` y résout
-  toutes les dépendances (libs `.so`, helpers `git-core`, bundle CA). Au runtime
-  le lanceur ajoute ces dossiers à `PATH` + `LD_LIBRARY_PATH` (et règle
-  `GIT_EXEC_PATH`, `GIT_SSL_CAINFO`, `SHELL`…) : `git`, `bash`, `rg`, `ssh` sont
-  alors disponibles **dans** la console Claude. Ça marche parce qu'install et
-  runtime partagent la même base alpine (même loader musl). Étendre avec
-  `CLAUDE_CONSOLE_TOOLS` (paquets apk supplémentaires).
-- **Installation garantie du binaire (rappel)** : si la toolchain échoue, Claude
-  Code démarre quand même ; le shell retombe sur busybox.
+- **Toolchain autonome, sans root (git, bash, ripgrep, ssh)** : l'image runtime
+  `node:24-alpine` ne fournit que busybox + node + npm — **ni git, ni bash** — et
+  l'outil Bash de Claude Code exige un **vrai bash** (busybox `sh` est refusé). Or
+  sur beaucoup d'hôtes rien ne tourne en root (juste `npm start` en uid 1000). Le
+  provisioning se fait donc **sans root** (`scripts/toolchain.mjs`) :
+  `apk fetch --recursive` télécharge `git`/`bash`/`ripgrep`/`ssh` **et toute leur
+  fermeture de dépendances** sous forme de fichiers `.apk` (fetch n'installe rien,
+  donc pas besoin de root), puis un extracteur `.apk` **dep-free** (zlib + lecteur
+  tar maison, aucun `tar`, aucun `chown`) les déballe dans `vendor/toolchain/` sur
+  le volume. Au runtime le lanceur câble `PATH`/`LD_LIBRARY_PATH`/`GIT_EXEC_PATH`/
+  `GIT_SSL_CAINFO`/`SHELL` vers ce préfixe → `git`, `bash`, `rg`, `ssh` marchent
+  **dans** la console. Ça fonctionne car install et runtime partagent la même base
+  alpine (même loader musl). Étendre avec `CLAUDE_CONSOLE_TOOLS`.
+- **Garantie du shell (fallback)** : si `apk fetch` est indisponible (pas d'apk,
+  dépôt injoignable…), un **bash entièrement statique** (un seul fichier, sans
+  dépendances) est téléchargé pour que la console reste utilisable coûte que coûte.
+  Le bandeau de démarrage indique l'état (`git, bash, ripgrep` / `bash only` /
+  `busybox only`).
 - **Console toujours vivante** : quand `claude` se termine (`/exit`), le serveur
   le relance, avec un garde-fou anti-boucle de crash.
 
@@ -87,13 +92,16 @@ passe le PTY directement à `claude` :
   alpine ne définit pas `SHELL`. Le lanceur le règle automatiquement sur le shell
   présent (`/bin/sh` busybox). Si le message persiste, votre image runtime n'a
   aucun shell POSIX.
-- **`git: not found` / `bash: not found` dans la console Claude** : la toolchain
-  n'a pas pu être provisionnée à l'installation. Le bandeau de démarrage indique
-  `toolchain: busybox only`. Causes probables : pas de réseau/quota disque, ou
-  `apk` indisponible au moment de l'install. **Réinstallez** le serveur (le
-  provisioning ne tourne qu'à l'install, en root) ; au besoin réduisez
-  `CLAUDE_CONSOLE_TOOLS`. Note : le provisioning suppose une image d'install
-  alpine (`node:*-alpine`) avec les dépôts `main`+`community`.
+- **« No suitable shell found » persiste** : Claude Code v2 veut un **vrai bash**,
+  pas le `sh` busybox. Le lanceur provisionne un bash (apk ou statique) et règle
+  `SHELL` dessus. Si le bandeau affiche encore `busybox only`, le provisioning a
+  échoué (réseau/disque) — **redémarrez** ; il réessaie tant qu'aucun bash n'est
+  présent (pas de marqueur `.provisioned`).
+- **`git: not found` dans la console** : le bandeau indique `bash only (no git)`
+  → `apk fetch` n'a pas pu récupérer git (souvent dépôt `community`/réseau).
+  `bash` et la recherche fonctionnent quand même. Redémarrez pour réessayer ;
+  vérifiez l'accès réseau et l'espace disque. Le provisioning suppose une base
+  alpine (`apk` présent) avec les dépôts `main`+`community`.
 
 ## Mises à jour
 
