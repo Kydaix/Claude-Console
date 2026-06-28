@@ -32,11 +32,12 @@ Petit projet Node, sans dépendances de build : un lanceur qui fait tourner le
   `apk fetch --recursive` (télécharge la fermeture de deps en `.apk`, sans root) →
   extracteur `.apk` dep-free (`extractApk` : `gunzipSync` gère les membres gzip
   concaténés, lecteur ustar maison qui saute pax/control, pas de `chown`) →
-  déballe dans `vendor/toolchain/`. `boot.mjs` câble `PATH`/`LD_LIBRARY_PATH`/
+  déballe dans `.toolchain/` à la racine du volume (créé au runtime en uid 1000 ;
+  PAS `vendor/`, souvent cloné en root → non inscriptible). `boot.mjs` câble `PATH`/`LD_LIBRARY_PATH`/
   `GIT_EXEC_PATH`/`GIT_SSL_CAINFO`/`SHELL`. Marche car install et runtime partagent
   la base `node:*-alpine` (même loader musl). **Fallback bash statique** (1 fichier,
   zéro dep) si `apk fetch` échoue → le shell marche toujours. Idempotent via le
-  marqueur `vendor/toolchain/.provisioned` (pas de marqueur ⇒ on réessaie au boot).
+  marqueur `.toolchain/.provisioned` (pas de marqueur ⇒ on réessaie au boot).
 - `ensureToolchain` est appelé par `boot.mjs` (runtime, uid 1000) **et**
   `postinstall.mjs` (au cas où un hôte installe en root). Ne doit **jamais** faire
   échouer `npm install` (postinstall `exit 0`).

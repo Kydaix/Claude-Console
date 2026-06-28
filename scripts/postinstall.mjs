@@ -14,7 +14,11 @@ import process from "node:process";
 import { ensureToolchain } from "./toolchain.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PREFIX = join(dirname(HERE), "vendor", "toolchain");
+// Provision into a runtime-writable dir at the volume root, NOT the committed
+// (often root-owned) vendor/ tree. boot.mjs passes CLAUDE_CONSOLE_TOOLCHAIN so
+// both agree; dirname(HERE) is the repo root (= volume root) as a fallback.
+const PREFIX =
+  process.env.CLAUDE_CONSOLE_TOOLCHAIN || join(dirname(HERE), ".toolchain");
 
 const log = (m) => process.stdout.write(`\x1b[36m[claude-console]\x1b[0m ${m}\n`);
 const warn = (m) => process.stderr.write(`\x1b[33m[claude-console] ${m}\x1b[0m\n`);

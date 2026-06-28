@@ -53,8 +53,9 @@ passe le PTY directement à `claude` :
   `apk fetch --recursive` télécharge `git`/`bash`/`ripgrep`/`ssh` **et toute leur
   fermeture de dépendances** sous forme de fichiers `.apk` (fetch n'installe rien,
   donc pas besoin de root), puis un extracteur `.apk` **dep-free** (zlib + lecteur
-  tar maison, aucun `tar`, aucun `chown`) les déballe dans `vendor/toolchain/` sur
-  le volume. Au runtime le lanceur câble `PATH`/`LD_LIBRARY_PATH`/`GIT_EXEC_PATH`/
+  tar maison, aucun `tar`, aucun `chown`) les déballe dans `.toolchain/` à la
+  racine du volume (un dossier créé au runtime en uid 1000 — surtout pas dans
+  `vendor/`, souvent cloné en root donc non inscriptible par uid 1000). Au runtime le lanceur câble `PATH`/`LD_LIBRARY_PATH`/`GIT_EXEC_PATH`/
   `GIT_SSL_CAINFO`/`SHELL` vers ce préfixe → `git`, `bash`, `rg`, `ssh` marchent
   **dans** la console. Ça fonctionne car install et runtime partagent la même base
   alpine (même loader musl). Étendre avec `CLAUDE_CONSOLE_TOOLS`.

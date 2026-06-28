@@ -82,10 +82,14 @@ const VENDOR = join(HERE, "vendor");
 const LOCAL_BIN = join(HERE, "node_modules", ".bin");
 const RG = join(VENDOR, IS_WINDOWS ? "rg.exe" : "rg");
 
-// Self-contained toolchain (git/bash/ripgrep/ssh + their libs) that
-// scripts/postinstall.mjs installs onto the volume with `apk add --root` at
-// install time. Present only on alpine hosts where provisioning succeeded.
-const TOOLCHAIN = join(VENDOR, "toolchain");
+// Self-contained toolchain (git/bash/ripgrep/ssh + their libs) provisioned onto
+// the volume by scripts/toolchain.mjs. It MUST live in a directory we create at
+// runtime (uid 1000), NOT inside the committed `vendor/` dir: the repo is often
+// cloned as root, leaving its tree root-owned and unwritable by uid 1000 (the
+// volume ROOT is writable — that's where .claude-home/workspace/node_modules
+// land — but pre-existing repo subdirs are not).
+const TOOLCHAIN =
+  process.env.CLAUDE_CONSOLE_TOOLCHAIN || join(VOLUME, ".toolchain");
 const TC_BIN = [
   join(TOOLCHAIN, "usr", "bin"),
   join(TOOLCHAIN, "usr", "sbin"),
@@ -149,6 +153,8 @@ childEnv.HOME = HOME;
 childEnv.USERPROFILE = HOME; // harmless on POSIX, correct on Windows dev boxes
 childEnv.USER = childEnv.USER || "container";
 childEnv.TERM = childEnv.TERM || "xterm-256color";
+// Keep the self-heal `npm install` (its postinstall) on the same writable path.
+childEnv.CLAUDE_CONSOLE_TOOLCHAIN = TOOLCHAIN;
 
 // PATH: volume toolchain first (git/bash/rg…), then the local npm bin + vendor.
 childEnv.PATH = [...(haveToolchain ? TC_BIN : []), LOCAL_BIN, VENDOR, childEnv.PATH]
