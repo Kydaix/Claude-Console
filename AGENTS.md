@@ -19,9 +19,15 @@ Petit projet Node, sans dépendances de build : un lanceur qui fait tourner le
 - `npm start` → `boot.mjs`. `boot.mjs` reste **dep-free** (Node pur, ESM).
 - `HOME` est pinné sur le volume (`.claude-home`) → le login (abonnement) survit
   aux redémarrages. Ne jamais écrire d'identifiants hors du volume.
-- ripgrep musl : `scripts/postinstall.mjs` télécharge un `rg` **statique musl**
-  dans `vendor/` (seul moment avec root + réseau + volume). Le postinstall ne
-  doit **jamais** faire échouer `npm install` (toujours `exit 0`).
+- **Claude Code v2 = binaire natif ~224 Mo** via deps optionnelles par plateforme
+  (build `linux-x64-musl` pour alpine). Une dep *optionnelle* qui échoue ne casse
+  pas `npm install` (exit 0) → `boot.mjs` doit **vérifier** le vrai binaire
+  (`node_modules/@anthropic-ai/claude-code/bin/claude.exe`, taille ≥ ~5 Mo, sinon
+  c'est le stub) et l'**installer au runtime** s'il manque. Lancer le binaire en
+  **direct**, jamais via `.bin/claude`/PATH (peut manquer ou être un lien mort).
+- ripgrep musl (défensif) : `scripts/postinstall.mjs` peut déposer un `rg`
+  statique musl dans `vendor/` ; il ne doit **jamais** faire échouer `npm install`
+  (toujours `exit 0`). Le binaire natif embarque déjà son propre ripgrep.
 - Cibler `linux/amd64` (cible de prod UniSlaw). arm64 musl est best-effort.
 
 ## Vérifs locales

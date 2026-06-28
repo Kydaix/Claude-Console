@@ -36,12 +36,19 @@ passe le PTY directement à `claude` :
   l'état des projets → connexion conservée entre redémarrages et réinstallations.
 - **Espace de travail** : Claude travaille dans `/home/container/workspace` (séparé
   de sa config). Vos fichiers vivent là.
-- **ripgrep musl** : l'image runtime est `node:24-alpine` (musl) ; le ripgrep
-  livré avec Claude Code est compilé pour glibc. `scripts/postinstall.mjs`
-  télécharge un `rg` **statique musl** dans `vendor/` au moment de l'installation
-  (seul instant avec root + réseau + volume), et le lanceur l'expose via `PATH`
-  + `USE_BUILTIN_RIPGREP=0`. Si le téléchargement échoue, Claude Code démarre
-  quand même (seule la recherche est dégradée).
+- **Installation garantie (self-heal)** : Claude Code v2 est un **binaire natif
+  ~224 Mo** livré via des dépendances optionnelles par plateforme (il existe une
+  build **musl** pour alpine). Or une dépendance *optionnelle* qui échoue ne fait
+  PAS échouer `npm install` (code 0) : un serveur peut donc démarrer sans `claude`
+  utilisable. Le lanceur **vérifie** la présence du vrai binaire et, s'il manque,
+  l'**installe au runtime** (une fois, conservé sur le volume) avant de lancer —
+  ce qui le rend robuste sur UniSlaw comme sur n'importe quel hébergement Node.
+  Lancement **direct du binaire** (jamais via le shim `.bin/claude` ou le `PATH`,
+  qui peuvent manquer).
+- **ripgrep musl (défensif)** : le binaire natif embarque déjà un ripgrep musl ;
+  par sécurité `scripts/postinstall.mjs` peut aussi déposer un `rg` statique musl
+  dans `vendor/` (exposé via `USE_BUILTIN_RIPGREP=0`). Sans, Claude Code démarre
+  quand même.
 - **Console toujours vivante** : quand `claude` se termine (`/exit`), le serveur
   le relance, avec un garde-fou anti-boucle de crash.
 
@@ -55,7 +62,17 @@ passe le PTY directement à `claude` :
 | `CLAUDE_CONSOLE_HOME` | `<volume>/.claude-home` | `HOME` où sont stockés config + identifiants. |
 | `CLAUDE_CONSOLE_ON_EXIT` | `relaunch` | `relaunch` \| `stop` \| `shell` à la sortie de Claude Code. |
 | `CLAUDE_CONSOLE_ARGS` | _(vide)_ | Arguments ajoutés à `claude` (session interactive si vide). |
+| `CLAUDE_CONSOLE_AUTO_INSTALL` | `1` | `0` désactive l'installation self-heal au runtime (hôtes sans réseau). |
 | `ANTHROPIC_API_KEY` | _(non défini)_ | Si présent, Claude Code l'utilise (crédits API) au lieu de l'abonnement. |
+
+## Dépannage
+
+- **`spawn claude ENOENT` / Claude Code absent** : le binaire natif (~224 Mo,
+  dépendance optionnelle) n'a pas été installé — souvent un timeout/quota disque
+  pendant `npm install`. Le lanceur tente désormais une installation au runtime ;
+  si elle échoue, vérifiez l'accès internet et l'espace disque du serveur, puis
+  redémarrez. Forcer une réinstallation propre du serveur (qui rejoue
+  `npm install`) résout aussi le souci.
 
 ## Mises à jour
 
