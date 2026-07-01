@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node boot.mjs",
     "postinstall": "node scripts/postinstall.mjs",
-    "check": "node --check boot.mjs && node --check scripts/postinstall.mjs"
+    "check": "node --check boot.mjs && node --check scripts/postinstall.mjs && node --check scripts/toolchain.mjs && node --check scripts/rtk.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "latest"

@@ -67,6 +67,30 @@ passe le PTY directement à `claude` :
 - **Console toujours vivante** : quand `claude` se termine (`/exit`), le serveur
   le relance, avec un garde-fou anti-boucle de crash.
 
+## RTK — moins de tokens (activé par défaut)
+
+[RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) est un binaire Rust qui
+s'intercale devant les commandes de dev (`git`, `npm`, `cargo`, `docker`…) et
+**compresse leur sortie** avant qu'elle n'atteigne le modèle — jusqu'à ~60-90 %
+de tokens en moins sur une session. Sur un Claude hébergé et facturé à l'usage,
+c'est directement du budget économisé, donc il est **activé par défaut**. Pour le
+désactiver, mettez la variable serveur **`CLAUDE_CONSOLE_RTK=0`**.
+
+À chaque démarrage (tant que `CLAUDE_CONSOLE_RTK` ≠ `0`), le lanceur :
+
+- télécharge le binaire **statique musl** (`rtk-x86_64-unknown-linux-musl`, un
+  seul fichier ~10 Mo, sans dépendances) depuis les releases GitHub et le dépose
+  dans la toolchain du volume (déjà sur le `PATH`, comme `git`/`bash`) ;
+- lance **une fois** `rtk init -g --auto-patch`, qui enregistre le hook Bash
+  `PreToolUse` de RTK dans `~/.claude/settings.json` (sous le `HOME` épinglé) et
+  ajoute `@RTK.md` à `CLAUDE.md`.
+
+Comme le `HOME` vit sur le volume, l'intégration — au même titre que le login —
+**survit aux redémarrages** ; l'installation est idempotente (marqueur
+`.toolchain/.rtk-installed`). Tout échec (réseau, arch non supportée) dégrade
+proprement en « RTK non installé » sans jamais casser la console. Cible
+supportée : **linux/amd64** (musl) ; arm64 est best-effort (build glibc amont).
+
 ## Variables d'environnement (optionnelles)
 
 À définir comme variables du serveur dans le panel.
@@ -80,6 +104,7 @@ passe le PTY directement à `claude` :
 | `CLAUDE_CONSOLE_BYPASS` | `1` | Lance Claude avec `--dangerously-skip-permissions` (aucune confirmation). Mettre `0` pour restaurer les demandes de permission interactives. |
 | `CLAUDE_CONSOLE_AUTO_INSTALL` | `1` | `0` désactive l'installation self-heal au runtime (hôtes sans réseau). |
 | `CLAUDE_CONSOLE_TOOLS` | _(vide)_ | Paquets apk supplémentaires à provisionner dans la toolchain (ex. `nano vim jq`). À définir **avant l'installation** du serveur. |
+| `CLAUDE_CONSOLE_RTK` | `1` | **RTK** ([rtk-ai/rtk](https://github.com/rtk-ai/rtk)) installé et activé dans Claude Code par défaut (voir ci-dessous). Mettre `0` pour le désactiver. |
 | `ANTHROPIC_API_KEY` | _(non défini)_ | Si présent, Claude Code l'utilise (crédits API) au lieu de l'abonnement. |
 
 ## Dépannage

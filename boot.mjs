@@ -33,6 +33,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { ensureToolchain } from "./scripts/toolchain.mjs";
+import { ensureRtk } from "./scripts/rtk.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const IS_WINDOWS = process.platform === "win32";
@@ -83,6 +84,13 @@ const CLAUDE_ARGS =
 
 // Allow disabling the runtime self-heal install (e.g. air-gapped hosts).
 const AUTO_INSTALL = process.env.CLAUDE_CONSOLE_AUTO_INSTALL !== "0";
+
+// Install RTK (github.com/rtk-ai/rtk), a static Rust binary that proxies dev
+// commands and compresses their output before it reaches the model, cutting
+// Claude Code's token use by ~60-90%. On by default (the whole point of this
+// console is an unattended, subscription-metered agent); set
+// CLAUDE_CONSOLE_RTK=0 to disable it.
+const RTK_ENABLED = process.env.CLAUDE_CONSOLE_RTK !== "0";
 
 // Where this repo's dependencies live (claude-code is one of them).
 const APP = HERE;
@@ -218,6 +226,21 @@ if (existsSync(join(TOOLCHAIN, "usr", "bin", "rg")) || existsSync(RG)) {
 // own managed install at runtime — silence the in-process auto-updater.
 childEnv.DISABLE_AUTOUPDATER = childEnv.DISABLE_AUTOUPDATER || "1";
 
+// --- optionally install RTK (token-saving command proxy) ---------------------
+
+// Done here (not in postinstall) because its Claude Code hook must land in the
+// pinned HOME's ~/.claude, which only exists at runtime — and because it wires
+// the binary onto childEnv.PATH for the session we're about to launch. Opt-in,
+// idempotent, and never fatal: a failure just means RTK isn't installed.
+let rtk = { hasRtk: false };
+if (!IS_WINDOWS && RTK_ENABLED && AUTO_INSTALL) {
+  try {
+    rtk = await ensureRtk({ prefix: TOOLCHAIN, env: childEnv, log, warn });
+  } catch (err) {
+    warn(`RTK provisioning error: ${err.message}`);
+  }
+}
+
 // --- ensure Claude Code is installed (self-heal) -----------------------------
 
 // Returns a spawnable target { cmd, args } or null. Prefers the native binary;
@@ -294,6 +317,13 @@ function banner() {
       BYPASS_PERMISSIONS
         ? "bypassed (--dangerously-skip-permissions)"
         : "interactive prompts (CLAUDE_CONSOLE_BYPASS=0)"
+    }${RESET}`,
+    `${DIM}  rtk:       ${
+      RTK_ENABLED
+        ? rtk.hasRtk
+          ? "installed (compresses command output, saves tokens)"
+          : "requested but unavailable (see warnings above)"
+        : "off (CLAUDE_CONSOLE_RTK=0)"
     }${RESET}`,
   ];
   if (!credsExist && !process.env.ANTHROPIC_API_KEY) {

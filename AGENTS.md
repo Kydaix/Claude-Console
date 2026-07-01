@@ -43,6 +43,17 @@ Petit projet Node, sans dépendances de build : un lanceur qui fait tourner le
   échouer `npm install` (postinstall `exit 0`).
 - L'extracteur est validé sur de vrais `.apk` ; ne pas le « simplifier » avec
   `tar`/`gunzip` shell (busybox tar gère mal les `.apk` multi-membres).
+- **RTK** (`scripts/rtk.mjs`, **activé par défaut**, opt-out `CLAUDE_CONSOLE_RTK=0`) :
+  [rtk-ai/rtk](https://github.com/rtk-ai/rtk), binaire **statique musl** unique
+  (`rtk-x86_64-unknown-linux-musl.tar.gz` = un seul `rtk` à la racine du tar →
+  réutilise `extractApk`), déposé dans `.toolchain/usr/bin` (déjà sur le `PATH`).
+  Fait **dans `boot.mjs`, pas `postinstall`** : son hook doit atterrir dans le
+  `~/.claude` du `HOME` épinglé (n'existe qu'au runtime), et il câble le binaire
+  sur `childEnv.PATH` de la session lancée. `rtk init -g --auto-patch` (une fois,
+  marqueur `.toolchain/.rtk-installed`) écrit le hook Bash `PreToolUse`
+  (`rtk hook claude`) dans `settings.json` → **le hook appelle `rtk` par le
+  `PATH`**, donc ne jamais retirer `usr/bin` du `PATH`. Jamais fatal (dégrade en
+  « non installé »). musl = amd64 ; arm64 best-effort (build glibc amont).
 - Cibler `linux/amd64`. arm64 géré par `apk` natif + asset bash-static aarch64.
 
 ## Vérifs locales
