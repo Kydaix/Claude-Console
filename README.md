@@ -77,6 +77,7 @@ passe le PTY directement à `claude` :
 | `CLAUDE_CONSOLE_HOME` | `<volume>/.claude-home` | `HOME` où sont stockés config + identifiants. |
 | `CLAUDE_CONSOLE_ON_EXIT` | `relaunch` | `relaunch` \| `stop` \| `shell` à la sortie de Claude Code. |
 | `CLAUDE_CONSOLE_ARGS` | _(vide)_ | Arguments ajoutés à `claude` (session interactive si vide). |
+| `CLAUDE_CONSOLE_BYPASS` | `1` | Lance Claude avec `--dangerously-skip-permissions` (aucune confirmation). Mettre `0` pour restaurer les demandes de permission interactives. |
 | `CLAUDE_CONSOLE_AUTO_INSTALL` | `1` | `0` désactive l'installation self-heal au runtime (hôtes sans réseau). |
 | `CLAUDE_CONSOLE_TOOLS` | _(vide)_ | Paquets apk supplémentaires à provisionner dans la toolchain (ex. `nano vim jq`). À définir **avant l'installation** du serveur. |
 | `ANTHROPIC_API_KEY` | _(non défini)_ | Si présent, Claude Code l'utilise (crédits API) au lieu de l'abonnement. |

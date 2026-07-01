@@ -65,6 +65,22 @@ const EXTRA_ARGS = (process.env.CLAUDE_CONSOLE_ARGS || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// Bypass Claude Code's permission prompts by default. This console runs in an
+// isolated, disposable container where the whole point is an unattended agent,
+// so we hand it --dangerously-skip-permissions up front. Set
+// CLAUDE_CONSOLE_BYPASS=0 to restore normal (interactive) permission prompts.
+// NOTE: Claude Code refuses this flag when running as root; the UniSlaw runtime
+// runs as uid 1000 (the `container`/`node` user), so it is accepted there.
+const BYPASS_PERMISSIONS = process.env.CLAUDE_CONSOLE_BYPASS !== "0";
+const BYPASS_FLAG = "--dangerously-skip-permissions";
+
+// Final argv handed to `claude`: the bypass flag first (unless disabled, or the
+// user already passed it via CLAUDE_CONSOLE_ARGS), then any user-provided args.
+const CLAUDE_ARGS =
+  BYPASS_PERMISSIONS && !EXTRA_ARGS.includes(BYPASS_FLAG)
+    ? [BYPASS_FLAG, ...EXTRA_ARGS]
+    : EXTRA_ARGS;
+
 // Allow disabling the runtime self-heal install (e.g. air-gapped hosts).
 const AUTO_INSTALL = process.env.CLAUDE_CONSOLE_AUTO_INSTALL !== "0";
 
@@ -209,13 +225,13 @@ childEnv.DISABLE_AUTOUPDATER = childEnv.DISABLE_AUTOUPDATER || "1";
 // stub was placed (e.g. installed with --ignore-scripts).
 function resolveTarget() {
   if (existsSync(CC_BIN) && statSync(CC_BIN).size >= REAL_BINARY_MIN_BYTES) {
-    return { cmd: CC_BIN, args: EXTRA_ARGS };
+    return { cmd: CC_BIN, args: CLAUDE_ARGS };
   }
   if (existsSync(CC_WRAPPER)) {
     // The wrapper require.resolve()s the matching @anthropic-ai/claude-code-*
     // platform package and execs its binary; works whenever that optional dep
     // is present even if the placeholder wasn't replaced.
-    return { cmd: process.execPath, args: [CC_WRAPPER, ...EXTRA_ARGS] };
+    return { cmd: process.execPath, args: [CC_WRAPPER, ...CLAUDE_ARGS] };
   }
   return null;
 }
@@ -273,6 +289,11 @@ function banner() {
         : toolchain.hasBash
           ? "bash only (no git)"
           : "busybox only (no git/bash)"
+    }${RESET}`,
+    `${DIM}  permissions: ${
+      BYPASS_PERMISSIONS
+        ? "bypassed (--dangerously-skip-permissions)"
+        : "interactive prompts (CLAUDE_CONSOLE_BYPASS=0)"
     }${RESET}`,
   ];
   if (!credsExist && !process.env.ANTHROPIC_API_KEY) {
